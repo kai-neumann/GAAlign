@@ -1,0 +1,417 @@
+//
+// Created by Kai on 23.0f2.2022.
+//
+
+#include "gradient_descent_cuda.h"
+
+#include <random>
+#include <iterator>
+#include <algorithm>
+#include <chrono>
+#include <numeric>
+
+#include <geometry/motor_estimation.h>
+#include <optimization/fast_shuffle.h>
+
+// CUDA
+#include <cmath>
+#include <Eigen/Core>
+
+/*
+ * CUDA HELPER FUNCTIONS ===============================================================================================
+ */
+inline unsigned int div_up(unsigned int numerator, unsigned int denominator)
+{
+    unsigned int result = numerator / denominator;
+    if (numerator % denominator) ++result;
+    return result;
+}
+
+dim3 getBlockDim() {
+    // Choose a fixed (sensible) block size
+    int block_size = 256;
+
+    dim3 dimBlock(block_size, 1);
+    return dimBlock;
+}
+
+dim3 getGridDim(int width, int height, dim3 blockSize) {
+    dim3 dimGrid(div_up(width, blockSize.x), div_up(height, blockSize.y));
+
+    return dimGrid;
+}
+
+#define CUDA_CHECK_ERROR                                                       \
+    do {                                                                       \
+        const cudaError_t err = cudaGetLastError();                            \
+        if (err != cudaSuccess) {                                              \
+            const char *const err_str = cudaGetErrorString(err);               \
+            std::cerr << "Cuda error in " << __FILE__ << ":" << __LINE__ - 1   \
+                      << ": " << err_str << " (" << err << ")" << std::endl;   \
+            exit(EXIT_FAILURE);                                                \
+        }                                                                      \
+    } while(0)
+/*
+ * CUDA HELPER FUNCTIONS ===============================================================================================
+ */
+
+// Define the motor currently used for transforming as constant memory
+__constant__ float constantMotor[8];
+
+__device__ unsigned int xorshift32(unsigned int state) {
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+/*
+ * Takes a list of correspondences and indices and saves the result into outMotors
+ */
+__global__ void calculateMotors(const float* corr, const unsigned int* indices, float* outMotors, const int iteration, const int trianglesCount, const int correspondenceCount) {
+    // 1D Thread ID
+    int idx = threadIdx.x;
+
+    // Load the correspondences into shared memory
+    extern __shared__ float sharedCorrespondences[];
+
+    // Load using all threads
+    for (int i = idx; i < 6*correspondenceCount; i += blockDim.x) {
+        sharedCorrespondences[i] = corr[i];
+    }
+
+    // If this thread is out of bounds for the triangle calculation: Skip
+    if(idx > trianglesCount - 1) {
+        return;
+    }
+
+    __syncthreads();
+
+    // Generate three indices
+    unsigned int id1 = 6*(xorshift32(133*idx) % correspondenceCount);
+    unsigned int id2 = 6*(xorshift32(133*idx+1) % correspondenceCount);
+    unsigned int id3 = 6*(xorshift32(133*idx+2) % correspondenceCount);
+
+    // Load the current triangle into temp arrays
+    float A_src_arr[4] = {sharedCorrespondences[id1], sharedCorrespondences[id1+1], sharedCorrespondences[id1+2], 1.0f};
+    float B_src_arr[4] = {sharedCorrespondences[id2], sharedCorrespondences[id2+1], sharedCorrespondences[id2+2], 1.0f};
+    float C_src_arr[4] = {sharedCorrespondences[id3], sharedCorrespondences[id3+1], sharedCorrespondences[id3+2], 1.0f};
+    float A_tar_arr[4] = {sharedCorrespondences[id1+3], sharedCorrespondences[id1+4], sharedCorrespondences[id1+5], 1.0f};
+    float B_tar_arr[4] = {sharedCorrespondences[id2+3], sharedCorrespondences[id2+4], sharedCorrespondences[id2+5], 1.0f};
+    float C_tar_arr[4] = {sharedCorrespondences[id3+3], sharedCorrespondences[id3+4], sharedCorrespondences[id3+5], 1.0f};
+
+    // Init the output
+    float calculatedMotor[8] = {0.0};
+
+    #pragma gpc begin
+        // Convert the points to multivectors
+        A_src_raw = mv_from_array(A_src_arr, e0^e3^e2, e0^e1^e3, e0^e2^e1, e1^e2^e3);
+        B_src_raw = mv_from_array(B_src_arr, e0^e3^e2, e0^e1^e3, e0^e2^e1, e1^e2^e3);
+        C_src_raw = mv_from_array(C_src_arr, e0^e3^e2, e0^e1^e3, e0^e2^e1, e1^e2^e3);
+        A_tar = mv_from_array(A_tar_arr, e0^e3^e2, e0^e1^e3, e0^e2^e1, e1^e2^e3);
+        B_tar = mv_from_array(B_tar_arr, e0^e3^e2, e0^e1^e3, e0^e2^e1, e1^e2^e3);
+        C_tar = mv_from_array(C_tar_arr, e0^e3^e2, e0^e1^e3, e0^e2^e1, e1^e2^e3);
+
+        // Convert motor to multivector
+        M = mv_from_array(constantMotor, 1, e0^e1, e0^e2, e0^e3, e1^e2, e1^e3, e2^e3, e0^e1^e2^e3);
+
+        #pragma clucalc begin
+            // Transform the source points with the current motor
+            ?A_src = M * A_src_raw * ~M;
+            ?B_src = M * B_src_raw * ~M;
+            ?C_src = M * C_src_raw * ~M;
+
+            // Transformation from A_src to A_tar
+            // (translation)
+            !VA_unnormalized = (1+A_tar/A_src);
+            !VA_norm = abs(VA_unnormalized);
+            !VA = VA_unnormalized/VA_norm;
+
+            !A2 = VA * A_src * ~VA;
+            !B2 = VA * B_src * ~VA;
+            !C2 = VA * C_src * ~VA;
+
+            // Transformation from B2 to Bt
+            // based on the rotation from the line L2 to L1
+            !L1 = *(*A_tar ^ *B_tar);
+            !L2 = *(*A_tar ^ *B2);
+
+            !VB_unnormalized = (1+L1/L2);
+            !VB_norm = abs(VB_unnormalized);
+            !VB = VB_unnormalized/VB_norm;
+
+            !B3 = VB * B2 * ~VB;
+            !C3 = VB * C2 * ~VB;
+
+            // Transformation from C3 to Ct
+            // based on the rotation of two planes
+            !P1 = *(*L1 ^*C_tar);
+            !P2 = *(*L1 ^*C3);
+
+            !VC_unnormalized = (1+P1/P2);
+            !VC_norm = abs(VC_unnormalized);
+            !VC = VC_unnormalized/VC_norm;
+
+            // complete transformation
+            !combined_motor = VC * VB * VA;
+
+            // Get the norm
+            !motor_norm = abs(combined_motor);
+
+            // Make sure the out motor is normalized
+            ?out_motor = combined_motor/motor_norm;
+        #pragma clucalc end
+
+        // Unpack the motor
+        calculatedMotor = mv_to_array(out_motor, 1, e0^e1, e0^e2, e0^e3, e1^e2, e1^e3, e2^e3, e0^e1^e2^e3);
+
+    #pragma gpc end
+
+    // Set the calculated motor to the out motors
+    for(int i=0; i<8; i++) {
+        outMotors[8*idx + i] = calculatedMotor[i];
+    }
+}
+
+/*
+ * Sum up all motors in parallel. Implementation based on https://sodocumentation.net/cuda/topic/6566/parallel-reduction--e-g--how-to-sum-an-array-
+ */
+__global__ void sumMotors(const float *calculatedMotors, float* summedMotor, int motorsCount, float stepSize) {
+    // 2D Thread ID
+    int idx = threadIdx.x;
+
+    // Sum up locally first, if there are more motors than the block size
+    float localSum[8] = {0};
+    for (int i = idx; i < motorsCount; i += blockDim.x) {
+        #pragma unroll
+        for(int j=0; j<8; j++) {
+            localSum[j] += calculatedMotors[8*i + j];
+        }
+    }
+
+    // Initialize a shared array for summing
+    extern __shared__ float partialSum[];
+
+    // Apply the current value if it is not nan
+    if(!isnan(localSum[0])) {
+        #pragma unroll
+        for(int i=0; i<8; i++) {
+            partialSum[8*idx+i] = localSum[i];
+        }
+    }
+
+    // Wait until all local calculations are done
+    __syncthreads();
+
+    // Do the graph based sum (adapted from the PMPP lecture slides "2021-10-26-CUDAProgramming3" slide 55)
+    unsigned int t = threadIdx.x;
+    unsigned int stride;
+    for (stride = blockDim.x; stride > 1;) {
+        __syncthreads();
+        stride = stride >> 1;
+        if (t < stride) {
+            #pragma unroll
+            for(int j=0; j<8; j++) {
+                partialSum[8*t+j] += partialSum[8*(t + stride)+j];
+            }
+        }
+    }
+
+
+    // Normalize & Scale the summed motor and then join it with the current combined motor (stored in constant memory)
+    __syncthreads();
+
+    // Normalize and scale with step size
+    if(idx > 0 && idx < 8) {
+        partialSum[idx] = stepSize*(partialSum[idx] / partialSum[0]);
+    }
+
+    __syncthreads();
+
+    if(idx == 0) {
+        // Print if wished
+        //printf("Sum: [%f,%f,%f,%f,%f,%f,%f,%f]\n", partialSum[0], partialSum[1], partialSum[2], partialSum[3], partialSum[4], partialSum[5], partialSum[6], partialSum[7]);
+
+        // Set the scalar component to 1
+        partialSum[0] = 1;
+
+        // Join with input motor
+        // Init output
+        float joinedMotor[8] = {0.0};
+
+        #pragma gpc begin
+            // Convert motor to multivector
+            M1 = mv_from_array(partialSum, 1, e0^e1, e0^e2, e0^e3, e1^e2, e1^e3, e2^e3, e0^e1^e2^e3);
+            M2 = mv_from_array(constantMotor, 1, e0^e1, e0^e2, e0^e3, e1^e2, e1^e3, e2^e3, e0^e1^e2^e3);
+
+            #pragma clucalc begin
+                // Combine both motors
+                combined = M1 * M2;
+
+                // Get the norm
+                combined_norm = abs(combined);
+
+                // Make sure the out motor is normalized
+                ?normed_motor = combined/combined_norm;
+            #pragma clucalc end
+
+            // Unpack the motor
+            joinedMotor = mv_to_array(normed_motor, 1, e0^e1, e0^e2, e0^e3, e1^e2, e1^e3, e2^e3, e0^e1^e2^e3);
+        #pragma gpc end
+
+        //printf("joinedMotor: [%f,%f,%f,%f,%f,%f,%f,%f]\n", joinedMotor[0], joinedMotor[1], joinedMotor[2], joinedMotor[3], joinedMotor[4], joinedMotor[5], joinedMotor[6], joinedMotor[7]);
+
+        // Apply to output -> this is the slowest part!
+        #pragma unroll
+        for(int i=0; i<8; i++) {
+            summedMotor[i] = joinedMotor[i];
+        }
+    }
+
+}
+
+gaalign::Motor gaalign::GradientDescentOptimizerCUDA::optimize(const std::vector<Correspondence> &correspondences) const {
+    // Sanity checks
+    if(!m_initialized) {
+        std::cout << "ERROR: GradientDescentOptimizerCUDA needs to be initialized using init() before use!";
+    }
+
+    // If there are more correspondences than we need -> Randomly sample the chosen amount
+    std::vector<Correspondence> sampledCorrespondences;
+    sampledCorrespondences.reserve(m_settings.maxCorrespondences);
+    if(correspondences.size() > m_settings.maxCorrespondences) {
+        // Initialize an array containing the indices of all correspondences
+        std::vector<std::uint32_t> indices(correspondences.size());
+        std::iota(indices.begin(), indices.end(), 0); // Fill with values [0, 1, 2, ..]
+
+        // Shuffle the array
+        shuffle_pcg_divisionless_with_slight_bias(indices.data(), indices.size());
+
+        // Use the first n indices
+        for(int i=0; i<m_settings.maxCorrespondences; i++) {
+            sampledCorrespondences.push_back(correspondences[indices[i]]);
+        }
+    }
+    else {
+        sampledCorrespondences = correspondences;
+    }
+
+    if(m_settings.verbose) std::cout << "Running CUDA Gradient descent.." << std::endl;
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
+    // Put the correspondences into a large array
+    #pragma omp parallel for
+    for (int i = 0; i < sampledCorrespondences.size(); i++) {
+        correspondenceArrayCPU[6 * i] =     (float)sampledCorrespondences[i].first.x();
+        correspondenceArrayCPU[6 * i + 1] = (float)sampledCorrespondences[i].first.y();
+        correspondenceArrayCPU[6 * i + 2] = (float)sampledCorrespondences[i].first.z();
+        correspondenceArrayCPU[6 * i + 3] = (float)sampledCorrespondences[i].second.x();
+        correspondenceArrayCPU[6 * i + 4] = (float)sampledCorrespondences[i].second.y();
+        correspondenceArrayCPU[6 * i + 5] = (float)sampledCorrespondences[i].second.z();
+    }
+
+    // Upload the correspondences to the device
+    cudaMemcpy(correspondencesGPU, (float*)correspondenceArrayCPU, 6 * sizeof(float) * sampledCorrespondences.size(), cudaMemcpyHostToDevice); CUDA_CHECK_ERROR;
+
+    // Sync the devices
+    cudaDeviceSynchronize();
+
+    // Measure only upload
+    auto endUpload = std::chrono::high_resolution_clock::now();
+    double timeMSUpload = ((double)std::chrono::duration_cast<std::chrono::nanoseconds>(endUpload - begin).count())/1000000.0;
+
+    // Upload an identity motor to the current constant motor
+    gaalign::Motor identity = gaalign::Motor::identity();
+    float* identityMotorFloat = (float*) malloc(8 * sizeof(float));
+    for(int i=0; i<8; i++) {
+        identityMotorFloat[i] = (float)identity.data[i];
+    }
+    cudaMemcpyToSymbol(constantMotor, (float*)identityMotorFloat, 8 * sizeof(float), 0, cudaMemcpyHostToDevice); CUDA_CHECK_ERROR;
+
+    // Do the actual iterations
+    for (int iter = 0; iter < m_settings.maxIterations; iter++) {
+        // Execute the main kernel that computes the motors
+        calculateMotors<<<1, 512, 6*sampledCorrespondences.size()*sizeof(float)>>>(correspondencesGPU, indicesGPU, calculatedMotors, iter, m_settings.trianglesPerIteration, sampledCorrespondences.size()); CUDA_CHECK_ERROR;
+
+        // Execute a reduction kernel that calculates the averaged motor
+        int reductionBlockSize = 64; // MUST be a power of two and smaller than the number of motors
+        double stepSize = m_settings.stepSize;
+        if(iter == 0) stepSize = 1;
+        sumMotors<<<1, reductionBlockSize, /*shared memory size*/ 8*reductionBlockSize*sizeof(unsigned int)>>>(calculatedMotors, avgMotor, m_settings.trianglesPerIteration, stepSize); CUDA_CHECK_ERROR;
+
+        // Update the motor in constant memory to the current combined motor
+        cudaMemcpyToSymbol(constantMotor, (float*)avgMotor, 8 * sizeof(float), 0, cudaMemcpyDeviceToDevice); CUDA_CHECK_ERROR;
+    }
+
+    // Download the final motor and convert it to a Motor struct
+    float* resultMotorArr = (float*)malloc(8 * sizeof(float));
+    cudaMemcpy(resultMotorArr, (float*)avgMotor, 8 * sizeof(float), cudaMemcpyDeviceToHost); CUDA_CHECK_ERROR;
+
+    // Unpack to motor
+    Motor result;
+    for(int i=0; i<8; i++) {
+        result.data[i] = (double)resultMotorArr[i];
+    }
+
+    result.print();
+
+    // End timer
+    auto end = std::chrono::high_resolution_clock::now();
+    double timeMS = ((double)std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count())/1000000.0;
+    if(m_settings.printTiming) std::cout << "Finished Optimization in " << timeMS << " ms (Upload took " << timeMSUpload << " ms)" << std::endl;
+
+
+
+    return result;
+}
+
+std::string gaalign::GradientDescentOptimizerCUDA::getName() const {
+    return "Gradient Descent CUDA";
+}
+
+gaalign::GradientDescentSettingsCUDA &gaalign::GradientDescentOptimizerCUDA::getSettings() {
+    return m_settings;
+}
+
+void gaalign::GradientDescentOptimizerCUDA::init() {
+    if(m_initialized) {
+        return;
+    }
+
+    std::cout << "Initializing memory for the cuda optimizer.." << std::endl;
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
+    // Allocate memory for correspondences
+    cudaMalloc(&correspondencesGPU, 6 * sizeof(float) * m_settings.maxCorrespondences);
+
+    // Allocate the memory for indices
+    cudaMalloc(&indicesGPU, sizeof(unsigned int) * m_settings.trianglesPerIteration*m_settings.maxIterations);
+
+    // Allocate the memory for the motors calculated per iteration
+    cudaMalloc(&calculatedMotors, sizeof(float) * 8 * m_settings.trianglesPerIteration);
+
+    // Allocate the memory for the averaged motor generated by the kernel
+    cudaMalloc(&avgMotor, sizeof(float) * 8);
+
+    // Also initialize the CPU memory
+    correspondenceArrayCPU = (float *) malloc(6 * sizeof(float) * m_settings.maxCorrespondences);
+
+    // End timer
+    auto end = std::chrono::high_resolution_clock::now();
+    double timeMS = ((double)std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count())/1000000.0;
+    if(m_settings.printTiming) std::cout << "Allocated memory in " << timeMS << " ms" << std::endl;
+
+    // Store that this optimizer was initialized
+    m_initialized = true;
+}
+
+gaalign::GradientDescentOptimizerCUDA::~GradientDescentOptimizerCUDA() {
+    // Free gpu memory
+    cudaFree(correspondencesGPU);
+    cudaFree(indicesGPU);
+    cudaFree(calculatedMotors);
+    cudaFree(avgMotor);
+
+    // Also free CPU memory
+    free(correspondenceArrayCPU);
+}

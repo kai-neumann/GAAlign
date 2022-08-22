@@ -1,0 +1,3 @@
+#!/bin/sh
+cd ${GPC_JAR_DIR}
+${Java_JAVA_EXECUTABLE} -jar "${GPC_JAR}" --gpc $*
