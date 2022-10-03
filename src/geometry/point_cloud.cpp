@@ -19,57 +19,57 @@ gaalign::PointCloud::PointCloud(std::string filePath) {
 
     // Clear the internal points
     m_points.clear();
+    m_normals.clear();
+    m_indices.clear();
 
-    // Store if we are currenly reading the header
-    bool readingHeader = true;
+    // Construct the data object by reading from file
+    happly::PLYData plyIn(filePath);
 
-    // Intialize the bounds with large values
-    boundsMin = Eigen::Vector3d(100000, 100000, 100000);
-    boundsMax = Eigen::Vector3d(-100000, -100000, -100000);
+    // Get the positions
+    std::vector<double> posX = plyIn.getElement("vertex").getProperty<double>("x");
+    std::vector<double> posY = plyIn.getElement("vertex").getProperty<double>("y");
+    std::vector<double> posZ = plyIn.getElement("vertex").getProperty<double>("z");
 
-    // Read file line by line
-    std::ifstream file(filePath);
-    std::string line;
-    while (std::getline(file, line))
-    {
-        if(readingHeader) {
-            if(boost::starts_with(line, "end_header")) {
-                readingHeader = false;
-            }
-            continue;
+    // Check if the model has normals
+    bool foundNx = false;
+    bool foundNy = false;
+    bool foundNz = false;
+    for(const auto& name : plyIn.getElement("vertex").getPropertyNames()) {
+        foundNx |= name == "nx";
+        foundNy |= name == "ny";
+        foundNz |= name == "nz";
+    }
+    bool hasNormals = foundNx && foundNy && foundNz;
+
+    // Get the normals
+    std::vector<double> normX;
+    std::vector<double> normY;
+    std::vector<double> normZ;
+    if(hasNormals) {
+        normX = plyIn.getElement("vertex").getProperty<double>("nx");
+        normY = plyIn.getElement("vertex").getProperty<double>("ny");
+        normZ = plyIn.getElement("vertex").getProperty<double>("nz");
+    }
+
+    // Convert to output data structure
+    m_points.resize(posX.size());
+    m_normals.resize(normX.size());
+    m_indices.resize(normX.size());
+
+    #pragma omp parallel for
+    for(int i=0; i<m_points.size(); i++) {
+        // Convert the points
+        m_points[i] = Eigen::Vector3d(posX[i], posY[i], posZ[i]);
+        m_indices[i] = i;
+
+        // Convert the normals, if they exists
+        if(hasNormals) {
+            m_normals[i] = Eigen::Vector3d(normX[i], normY[i], normZ[i]);
         }
-
-        // Tokenize the string
-        std::vector<std::string> splitted;
-        boost::split(splitted,line,boost::is_any_of(" "));
-
-        // Create a Point
-        Eigen::Vector3d vec(std::stod(splitted[0]), std::stod(splitted[1]), std::stod(splitted[2]));
-        m_points.push_back(vec);
-        m_indices.push_back(m_points.size()-1);
-
-        // Also read in normals if available
-        if(splitted.size() >= 6) {
-            Eigen::Vector3d norm(std::stod(splitted[3]), std::stod(splitted[4]), std::stod(splitted[5]));
-            m_normals.push_back(norm);
-        }
-
-        // Update the bounding box
-        updateBoundingBox(vec);
     }
 
-    if(m_normals.size() > 0 && m_normals.size() != m_points.size()) {
-        std::cerr << "Error: Mismatching number of normals and points!" << std::endl;
-        throw std::runtime_error("Mismatching number of normals and points");
-    }
-
-    std::cout << "Read in point cloud with " << m_points.size() << " points ";
-    if(m_normals.empty()) {
-        std::cout << std::endl;
-    }
-    else {
-        std::cout << "with normals " << std::endl;
-    }
+    // Recalculate the bounding box
+    resetBoundingBox();
 }
 
 Eigen::Vector3d gaalign::PointCloud::getPoint(const int &index) const {

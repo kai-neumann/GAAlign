@@ -8,6 +8,8 @@
 
 void visualizeCorrespondences3D(const gaalign::PointCloud &source, const gaalign::PointCloud &target,
                                 const std::vector<std::pair<int, int>>& correspondences) {
+    std::cout << "Visualizing point cloud.." << std::endl;
+
     //
     //  Visualization
     //

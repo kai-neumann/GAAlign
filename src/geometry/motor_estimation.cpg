@@ -87,12 +87,6 @@ void gaalign::estimateMotorFromThreeCorrespondences(const std::vector<std::pair<
 
 #pragma gpc end
 
-    // Create motor
-    /*gaalign::Motor m;
-    m.data = std::vector<double>(calculatedMotor, calculatedMotor + (sizeof calculatedMotor / sizeof calculatedMotor[0]));
-
-    //if(Motor::PRINT_ESTIMATION) m.print();
-    return m;*/
 
     // Set to output
     for(int i=0; i<8; i++) {

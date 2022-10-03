@@ -582,3 +582,6 @@ TSWLatexianTemp*
 #*Notes.bib
 
 Datasets/
+
+resources/*.ply
+resources/models/*.ply

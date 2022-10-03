@@ -110,8 +110,8 @@ int main(int argc, char** argv) {
     featureSearch->getSettings().visualizeMatches = false;
     coarse.setCorrespondenceSearch(featureSearch);
 
-    //std::shared_ptr<gaalign::GradientDescentOptimizer> optimCoarse = std::make_shared<gaalign::GradientDescentOptimizer>();
-    std::shared_ptr<gaalign::GradientDescentOptimizerCUDA> optimCoarse = std::make_shared<gaalign::GradientDescentOptimizerCUDA>();
+    std::shared_ptr<gaalign::GradientDescentOptimizer> optimCoarse = std::make_shared<gaalign::GradientDescentOptimizer>();
+    //std::shared_ptr<gaalign::GradientDescentOptimizerCUDA> optimCoarse = std::make_shared<gaalign::GradientDescentOptimizerCUDA>();
     optimCoarse->getSettings().verbose = false;
     optimCoarse->getSettings().printTiming = true;
     coarse.setOptimizer(optimCoarse);
@@ -133,13 +133,14 @@ int main(int argc, char** argv) {
     optimFine->getSettings().printTiming = true;
     fine.setOptimizer(optimFine);
 
-    //pipeline.addStep(fine);
+    pipeline.addStep(fine);
 
     // -----------------------------------------------------------------------------------------------------------------
 
     // IMPORTANT: If we are using cuda: We need to initialize both optimizers before the actual runtime
+    //optimCoarse->init();
     //optimFine->init();
-    optimCoarse->init();
+
 
     // Run the pipeline
     pipeline.run(source, target);

@@ -43,7 +43,9 @@ When using vcpkg in Windows you can use:
 > -DCMAKE_TOOLCHAIN_FILE="C:\vcpkg\scripts\buildsystems\vcpkg.cmake" -DGPC_ROOT_DIR="C:\Users\Kai\Documents\Uni\Master\Semester4\GeometricAlgebraicComputing\GAALOP_Precompiler\GPC" -DGPC_USE_GCSE=True  -DENABLE_TESTBENCH=True
 
 ## Datasets
-All models that are used inside the testbench are placed inside the <b>resources</b> folder. These models are used as part of the testbench and the full generated dataset is output to the <b>Datasets</b> folder. A precalcualted dataset will be available at this point at a later point in time.
+A selection of models that can be used to test the application can be downloaded from [Link](https://drive.google.com/file/d/1inRxOQ3aFQGp7S5AH6is_WeIlZolDpMy/view?usp=sharing).
+
+To run the testbench, for reproducing the comparison to other algorithms, you need to download the [source models](https://drive.google.com/file/d/1A9RW2cpm4HZRKvBdpBWS7lf-XtI5CQKa/view?usp=sharing) and unpack them in the <b>resources/models/</b> folder. These models are used as part of the testbench and the full generated dataset is output to the <b>Datasets</b> folder. A precalcualted dataset will be available at this point at a later point in time.
 
 ## Usage
 The application takes two parameters as input: First the source point cloud (which should be aligned) and secondly the target point cloud (which stays fixed).
