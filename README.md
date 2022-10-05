@@ -4,6 +4,9 @@ A point cloud registration library based on projective geometric algebra (PGA). 
 
 ![alt text](resources/images/header.png "Logo Title Text 1")
 
+## Update
+- 05.10.22 This paper has officially been awarded the "<b>Best Paper Award: GA Applied to Computational Performance</b>" at the ICACGA 2022. 
+
 ## Results
 ![alt text](resources/images/AlphaRecall.jpg "Logo Title Text 1")
 
