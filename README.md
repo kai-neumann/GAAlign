@@ -6,7 +6,8 @@ A point cloud registration library based on projective geometric algebra (PGA). 
 
 ## Update
 - 05.10.22 This paper has officially been awarded the "<b>Best Paper Award: GA Applied to Computational Performance</b>" at the ICACGA 2022. 
-
+- 05.07.25 I've created a version that does not require the Gaalop Precomplier allowing for easier complilation. It is comitted to a new branch.
+  
 ## Results
 ![alt text](resources/images/AlphaRecall.jpg "Logo Title Text 1")
 
