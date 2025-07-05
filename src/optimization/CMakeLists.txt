@@ -28,11 +28,7 @@ target_link_libraries(gaalign-optimization PUBLIC gaalign-geometry)
 if(ENABLE_CUDA)
 
     # Find the GAALOP precompiler and overwrite a few options
-    SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR})
-    set(GPC_ALGEBRA_NAME "3dpga")
-    set(GPC_USE_DOUBLE OFF) # Floats for cuda
-    FIND_PACKAGE(GPC)
-    GPC_CUDA_ADD_LIBRARY(gaalign-optimization-cuda gradient_descent_cuda/gradient_descent_cuda.h gradient_descent_cuda/gradient_descent_cuda.cug)
+    add_library(gaalign-optimization-cuda gradient_descent_cuda/gradient_descent_cuda.h gradient_descent_cuda/gradient_descent_cuda.cu fast_shuffle.cpp fast_shuffle.h fast_shuffle_pcg.h)
 
     # Set c++ standard
     set_target_properties(gaalign-optimization-cuda PROPERTIES CXX_STANDARD 17)

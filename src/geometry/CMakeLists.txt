@@ -1,11 +1,5 @@
-# Find the GAALOP precompiler and overwrite a few options
-SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR})
-set(GPC_ALGEBRA_NAME "3dpga")
-set(GPC_USE_DOUBLE ON)
-FIND_PACKAGE(GPC)
-
 # Define the library
-GPC_CXX_ADD_LIBRARY(gaalign-geometry motor.h point_cloud.h motor_estimation.h motor_estimation_sse.h motor.cpg point_cloud.cpp motor_estimation.cpg motor_estimation_sse.cpp common.h)
+add_library(gaalign-geometry motor.h point_cloud.h motor_estimation.h motor_estimation_sse.h motor.cpp point_cloud.cpp motor_estimation.cpp motor_estimation_sse.cpp common.h)
 
 # Set some target specific compile flags
 set_target_properties(gaalign-geometry PROPERTIES CXX_STANDARD 17)

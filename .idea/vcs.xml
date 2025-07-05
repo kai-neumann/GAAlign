@@ -2,22 +2,6 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-debug/pmc-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-debug/pybind11-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-debug/pybind11-src/tools/clang" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-debug/spectra-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-debug/tinyply-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-release/pmc-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-release/pybind11-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-release/pybind11-src/tools/clang" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-release/spectra-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-release/tinyply-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-relwithdebinfo/pmc-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-relwithdebinfo/pybind11-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-relwithdebinfo/pybind11-src/tools/clang" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-relwithdebinfo/spectra-src" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/3rdparty/Teaser/cmake-build-relwithdebinfo/tinyply-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/happly" vcs="Git" />
   </component>
 </project>
